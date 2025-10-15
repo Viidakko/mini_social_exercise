@@ -870,6 +870,114 @@ def loop_color(user_id):
 # ----- Functions to be implemented are below
 
 # Task 3.1
+def moderate_content(content):
+    """
+    Args
+        content: the text content of a post or comment to be moderated.
+        
+    Returns: 
+        A tuple containing the moderated content (string) and a severity score (float). There are no strict rules or bounds to the severity score, other than that a score of less than 1.0 means no risk, 1.0 to 3.0 is low risk, 3.0 to 5.0 is medium risk and above 5.0 is high risk.
+    
+    This function moderates a string of content and calculates a severity score based on
+    rules loaded from the 'censorship.dat' file. These are already loaded as TIER1_WORDS, TIER2_PHRASES and TIER3_WORDS. Tier 1 corresponds to strong profanity, Tier 2 to scam/spam phrases and Tier 3 to mild profanity.
+    
+    You will be able to check the scores by logging in with the administrator account:
+            username: admin
+            password: admin
+    Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
+    """
+    
+    word_dictionary = {}
+    high_score = 5.0
+    url_pattern = r'https?://\S+|www\.\S+'
+    if not content or content.strip() == "":
+        return None, 0.0
+    content_words = content.split()
+    for word in content_words:
+        if (word in TIER1_WORDS):
+            return "[content removed due to severe violation]", high_score
+    if content in TIER2_PHRASES:
+        return "[content removed due to spam/scam policy]", high_score
+    moderated_content = content
+    score = 0
+    for word in content_words:
+        if word not in word_dictionary:
+            word_dictionary[word] = 0
+        else:
+            word_dictionary[word] += 1
+        if word in TIER3_WORDS:
+            score += 2.0
+            moderated_content = moderated_content.replace(word, '*' * len(word))
+        if re.match(url_pattern, word) != None:
+            score += 2.0
+            moderated_content = moderated_content.replace(word, '[link removed]')
+    capital_count = 0
+    alphabetic_count = 0
+    for char in moderated_content:
+        if char.isalpha():
+            alphabetic_count += 1
+        if char.isupper():
+            capital_count += 1
+    if alphabetic_count > 15 and capital_count / alphabetic_count > 0.7:
+        score += 0.5
+    
+    for word in word_dictionary:
+        if word_dictionary[word] > 10:
+            score += 0.5
+
+    return moderated_content, score
+
+    
+
+# Task 3.2
+def user_risk_analysis(user_id):
+    """
+    Args:
+        user_id: The ID of the user on which we perform risk analysis.
+
+    Returns:
+        A float number score showing the risk associated with this user. There are no strict rules or bounds to this score, other than that a score of less than 1.0 means no risk, 1.0 to 3.0 is low risk, 3.0 to 5.0 is medium risk and above 5.0 is high risk. (An upper bound of 5.0 is applied to this score elsewhere in the codebase) 
+        
+        You will be able to check the scores by logging in with the administrator account:
+            username: admin
+            password: admin
+        Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
+    """
+    
+    score = 0
+    age_weight = 1.0
+    account_age = query_db('SELECT created_at FROM users WHERE id = ?', (user_id,), one=True)
+    account_age_days = (datetime.now() - account_age['created_at']).days
+    if account_age_days < 7:
+        age_weight = 1.5
+    elif account_age_days < 30:
+        age_weight = 1.2
+    user_profile = query_db('SELECT profile FROM users WHERE id = ?', (user_id,), one=True)
+    _, profile_score = moderate_content(user_profile['profile'])
+    posts = query_db('SELECT content FROM posts WHERE user_id = ?', (user_id,))
+    total_post_score = 0
+    post_count = len(posts)
+    for post in posts:
+        _, post_score = moderate_content(post['content'])
+        total_post_score += post_score
+    average_post_score = total_post_score / post_count if post_count > 0 else 0
+    comments = query_db('SELECT content FROM comments WHERE user_id = ?', (user_id,))
+    total_comment_score = 0
+    comment_count = len(comments)
+    for comment in comments:
+        _, comment_score = moderate_content(comment['content'])
+        total_comment_score += comment_score
+    average_comment_score = total_comment_score / comment_count if comment_count > 0 else 0
+
+    content_risk_score = profile_score + average_post_score * 3 + average_comment_score
+
+    user_risk_score = content_risk_score * age_weight
+
+    score = user_risk_score if user_risk_score < 5.0 else 5.0
+
+    return score
+
+# Task 3.3
 def recommend(user_id, filter_following):
     """
     Args:
@@ -890,54 +998,56 @@ def recommend(user_id, filter_following):
     - https://www.researchgate.net/publication/227268858_Recommender_Systems_Handbook
     """
 
-    recommended_posts = {} 
+    recommended_posts = {}
+    now = datetime.now()
+    following =  query_db('SELECT followed_id FROM follows WHERE follower_id = ?', (user_id,))
+    if filter_following:
+        posts = query_db("SELECT * FROM posts WHERE posts.user_id IN ?;", following)
+    else:
+        posts = query_db("SELECT * FROM posts;")
+    engaged_users = query_db("""
+        SELECT DISTINCT posts.user_id
+        FROM posts
+        JOIN reactions ON reactions.post_id = posts.id
+        WHERE reactions.user_id = ?
+        UNION
+        SELECT DISTINCT posts.user_id
+        FROM posts
+        JOIN comments ON comments.post_id = posts.id
+        WHERE comments.user_id = ?
+    """, (user_id, user_id))
 
-    return recommended_posts;
+    scored_posts = []
 
-# Task 3.2
-def user_risk_analysis(user_id):
-    """
-    Args:
-        user_id: The ID of the user on which we perform risk analysis.
-
-    Returns:
-        A float number score showing the risk associated with this user. There are no strict rules or bounds to this score, other than that a score of less than 1.0 means no risk, 1.0 to 3.0 is low risk, 3.0 to 5.0 is medium risk and above 5.0 is high risk. (An upper bound of 5.0 is applied to this score elsewhere in the codebase) 
-        
-        You will be able to check the scores by logging in with the administrator account:
-            username: admin
-            password: admin
-        Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
-    """
+    if not posts:
+        return []
     
-    score = 0
+    for post in posts:
 
-    return score;
+        days_old = (now - post['created_at']).days
 
-    
-# Task 3.3
-def moderate_content(content):
-    """
-    Args
-        content: the text content of a post or comment to be moderated.
-        
-    Returns: 
-        A tuple containing the moderated content (string) and a severity score (float). There are no strict rules or bounds to the severity score, other than that a score of less than 1.0 means no risk, 1.0 to 3.0 is low risk, 3.0 to 5.0 is medium risk and above 5.0 is high risk.
-    
-    This function moderates a string of content and calculates a severity score based on
-    rules loaded from the 'censorship.dat' file. These are already loaded as TIER1_WORDS, TIER2_PHRASES and TIER3_WORDS. Tier 1 corresponds to strong profanity, Tier 2 to scam/spam phrases and Tier 3 to mild profanity.
-    
-    You will be able to check the scores by logging in with the administrator account:
-            username: admin
-            password: admin
-    Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
-    """
+        score = max(0, 20 - days_old)
 
-    moderated_content = content
-    score = 0
-    
-    return moderated_content, score
+        if post['user_id'] in following:
+            score += 20
 
+        if post['user_id'] in engaged_users:
+            score += 10
+
+        scored_posts.append((score, post['created_at'], post['id'], post['content'], post['user_id']))
+
+    top_posts = sorted(scored_posts, key=lambda x: (-x[0], -x[1].timestamp()))[:5]
+
+    posts_in_order = sorted(top_posts, key=lambda x: x[1].timestamp(), reverse=True)
+
+    recommended_posts = [{
+        'created_at': post[1],
+        'id': post[2],
+        'content': post[3],
+        'user_id': post[4],
+    } for post in posts_in_order]
+
+    return recommended_posts
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)
-
