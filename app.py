@@ -703,6 +703,7 @@ def admin_dashboard():
         comments_page = 1
     
     current_tab = request.args.get('tab', 'users') # Default to 'users' tab
+    sort_by = request.args.get('sort', 'risk') # Default to risk-based sorting
 
     users_offset = (users_page - 1) * PAGE_SIZE
     
@@ -713,13 +714,20 @@ def admin_dashboard():
     for user in all_users_raw:
         user_dict = dict(user)
         user_risk_score = user_risk_analysis(user_dict['id'])
+        user_popularity_score = calculate_user_popularity(user_dict['id'])
         risk_label, risk_sort_key = get_risk_profile(user_risk_score)
+        user_dict['popularity_score'] = user_popularity_score
         user_dict['risk_label'] = risk_label
         user_dict['risk_sort_key'] = risk_sort_key
         user_dict['risk_score'] = min(5.0, round(user_risk_score, 2))
         all_users.append(user_dict)
 
-    all_users.sort(key=lambda x: x['risk_score'], reverse=True)
+    # Sort users based on selected criteria
+    if sort_by == 'popularity':
+        all_users.sort(key=lambda x: x['popularity_score'], reverse=True)
+    else:  # default to risk-based sorting
+        all_users.sort(key=lambda x: x['risk_score'], reverse=True)
+    
     total_users = len(all_users)
     users = all_users[users_offset : users_offset + PAGE_SIZE]
     total_users_pages = (total_users + PAGE_SIZE - 1) // PAGE_SIZE
@@ -790,6 +798,7 @@ def admin_dashboard():
                            total_users_pages=total_users_pages,
                            users_has_next=(users_page < total_users_pages),
                            users_has_prev=(users_page > 1),
+                           current_sort=sort_by,
 
                            # Pagination for Posts
                            posts_page=posts_page,
@@ -1048,6 +1057,21 @@ def recommend(user_id, filter_following):
     } for post in posts_in_order]
 
     return recommended_posts
+
+def calculate_user_popularity(user_id):
+    """
+    Args:
+        user_id: The ID of the current user.
+
+    Returns:
+        A float number score showing the engagement level of the user.
+    """
+    reactions_count = query_db('SELECT COUNT(*) as count FROM reactions WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)', (user_id,), one=True)['count']
+    comments_count = query_db('SELECT COUNT(*) as count FROM comments WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)', (user_id,), one=True)['count']
+    followers_count = query_db('SELECT COUNT(*) as count FROM follows WHERE followed_id = ?', (user_id,), one=True)['count']
+    total_popularity = reactions_count + comments_count * 2 + followers_count * 5
+    popularity_score = total_popularity / 100.0
+    return float(popularity_score)
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)

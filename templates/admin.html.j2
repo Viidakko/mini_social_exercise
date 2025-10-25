@@ -40,6 +40,19 @@
 
     <!-- Users Tab -->
     <div class="tab-pane fade {% if current_tab == 'users' %}show active{% endif %}" id="users" role="tabpanel" aria-labelledby="users-tab">
+        <!-- Sort Toggle -->
+        <div>
+            <div>
+                <a href="{{ url_for('admin_dashboard', tab='users', sort='risk', users_page=users_page) }}" 
+                   class="btn btn-outline-primary {{ 'active' if current_sort == 'risk' }}">
+                    Sort by Risk
+                </a>
+                <a href="{{ url_for('admin_dashboard', tab='users', sort='popularity', users_page=users_page) }}"
+                   class="btn btn-outline-primary {{ 'active' if current_sort == 'popularity' }}">
+                    Sort by Popularity
+                </a>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-striped table-hover">
                 <thead>
@@ -48,6 +61,7 @@
                         <th>Username</th>
                         <th>Profile Bio</th>
                         <th>Created At</th>
+                        <th>Popularity Score</th>
                         <th>Risk Level</th>
                         <th>Actions</th>
                     </tr>
@@ -59,6 +73,7 @@
                         <td><a href="{{ url_for('user_profile', username=user.username) }}">{{ user.username }}</a></td>
                         <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ user.profile or 'N/A' }}">{{ user.profile or 'N/A' }}</td>
                         <td>{{ user.created_at|datetimeformat }}</td>
+                        <td>{{ user.popularity_score }}</td>
                         <td>
                             {% if user.risk_label == "HIGH" %}
                                 <span class="badge bg-danger">HIGH</span>
